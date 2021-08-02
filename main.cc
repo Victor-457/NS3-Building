@@ -1,18 +1,27 @@
+
+#include "ns3/config.h"
+#include "ns3/boolean.h"
+#include "ns3/string.h"
+#include "ns3/yans-wifi-helper.h"
+#include "ns3/ssid.h"
+#include "ns3/mobility-helper.h"
+#include "ns3/on-off-helper.h"
+#include "ns3/yans-wifi-channel.h"
+#include "ns3/mobility-model.h"
+#include "ns3/packet-socket-helper.h"
+#include "ns3/packet-socket-address.h"
+#include "ns3/athstats-helper.h"
+#include "ns3/buildings-module.h"
+
+
 #include "ns3/core-module.h"
 #include "ns3/point-to-point-module.h"
 #include "ns3/network-module.h"
 #include "ns3/applications-module.h"
-#include "ns3/mobility-module.h"
 #include "ns3/csma-module.h"
 #include "ns3/internet-module.h"
-#include "ns3/yans-wifi-helper.h"
 #include "ns3/ssid.h"
-#include "ns3/buildings-module.h"
-#include <fstream>
-#include "ns3/uniform-planar-array.h"
-#include "ns3/three-gpp-spectrum-propagation-loss-model.h"
-#include "ns3/three-gpp-v2v-propagation-loss-model.h"
-#include "ns3/three-gpp-channel-model.h"
+
 
 
 
@@ -21,13 +30,92 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("Main");
 
+static bool g_verbose = true;
+
+void
+CourseChange(std::string context, Ptr<const MobilityModel> model)
+{
+  Vector position = model->GetPosition();
+  NS_LOG_UNCOND (context<<" x = " << position.x << "y = " << position.y);
+}
+
+void
+DevTxTrace (std::string context, Ptr<const Packet> p)
+{
+  if (g_verbose)
+    {
+      std::cout << " TX p: " << *p << std::endl;
+    }
+}
+void
+DevRxTrace (std::string context, Ptr<const Packet> p)
+{
+  if (g_verbose)
+    {
+      std::cout << " RX p: " << *p << std::endl;
+    }
+}
+void
+PhyRxOkTrace (std::string context, Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
+{
+  if (g_verbose)
+    {
+      std::cout << "PHYRXOK mode=" << mode << " snr=" << snr << " " << *packet << std::endl;
+    }
+}
+void
+PhyRxErrorTrace (std::string context, Ptr<const Packet> packet, double snr)
+{
+  if (g_verbose)
+    {
+      std::cout << "PHYRXERROR snr=" << snr << " " << *packet << std::endl;
+    }
+}
+void
+PhyTxTrace (std::string context, Ptr<const Packet> packet, WifiMode mode, WifiPreamble preamble, uint8_t txPower)
+{
+  if (g_verbose)
+    {
+      std::cout << "PHYTX mode=" << mode << " " << *packet << std::endl;
+    }
+}
+void
+PhyStateTrace (std::string context, Time start, Time duration, WifiPhyState state)
+{
+  if (g_verbose)
+    {
+      std::cout << " state=" << state << " start=" << start << " duration=" << duration << std::endl;
+    }
+}
+
+static void
+SetPosition (Ptr<Node> node, Vector position)
+{
+  Ptr<MobilityModel> mobility = node->GetObject<MobilityModel> ();
+  mobility->SetPosition (position);
+}
 
 static Vector
 GetPosition (Ptr<Node> node)
- {
-   Ptr<MobilityModel> mobility = node->GetObject<MobilityModel> ();
-   return mobility->GetPosition ();
- }
+{
+  Ptr<MobilityModel> mobility = node->GetObject<MobilityModel> ();
+  return mobility->GetPosition ();
+}
+
+static void
+AdvancePosition (Ptr<Node> node)
+{
+  Vector pos = GetPosition (node);
+  pos.x += 5.0;
+  if (pos.x >= 20.0)
+    {
+      return;
+    }
+  SetPosition (node, pos);
+
+  Simulator::Schedule (Seconds (1.0), &AdvancePosition, node);
+}
+
 
 int
 main (int argc, char *argv[])
@@ -66,12 +154,22 @@ main (int argc, char *argv[])
   Ssid ssid = Ssid ("wifi-default");
   wifi.SetRemoteStationManager ("ns3::ArfWifiManager");
 
+  // setup stas.
+  wifiMac.SetType ("ns3::StaWifiMac",
+                   "ActiveProbing", BooleanValue (true),
+                   "Ssid", SsidValue (ssid));
+  staDevs = wifi.Install (wifiPhy, wifiMac, stas);
+
   // setup ap.
   wifiMac.SetType ("ns3::ApWifiMac",
                    "Ssid", SsidValue (ssid));
   wifi.Install (wifiPhy, wifiMac, ap);
 
-  // mobility.
+  // mobility stas.
+  mobility.Install (stas);
+  
+
+  // mobility ap.
 	for (i = ap.Begin (); i != ap.End (); ++i)
 	{
     mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
@@ -95,8 +193,9 @@ main (int argc, char *argv[])
 	 		P_X = 1.0;	
 	 	}
 	}
+	
 
-
+	//Building creation
 	Ptr<Building> b = CreateObject <Building> ();
 
 	b->SetBoundaries (Box(x_min, x_max, y_min, y_max, z_min, z_max));
@@ -106,6 +205,35 @@ main (int argc, char *argv[])
 	b->SetNRoomsX (2);
 	b->SetNRoomsY (2);
 
+	PacketSocketAddress socket;
+  socket.SetSingleDevice (staDevs.Get (0)->GetIfIndex ());
+  socket.SetPhysicalAddress (staDevs.Get (1)->GetAddress ());
+  socket.SetProtocol (1);
+
+  OnOffHelper onoff ("ns3::PacketSocketFactory", Address (socket));
+  onoff.SetConstantRate (DataRate ("500kb/s"));
+
+  ApplicationContainer apps = onoff.Install (stas.Get (0));
+  apps.Start (Seconds (2));
+  apps.Stop (Seconds (24.0));
+
+  Simulator::Stop (Seconds (25.0));
+  Config::Connect ("/NodeList/*/DeviceList/*/Mac/MacTx", MakeCallback (&DevTxTrace));
+  Config::Connect ("/NodeList/*/DeviceList/*/Mac/MacRx", MakeCallback (&DevRxTrace));
+  Config::Connect ("/NodeList/*/DeviceList/*/Phy/State/RxOk", MakeCallback (&PhyRxOkTrace));
+  Config::Connect ("/NodeList/*/DeviceList/*/Phy/State/RxError", MakeCallback (&PhyRxErrorTrace));
+  Config::Connect ("/NodeList/*/DeviceList/*/Phy/State/Tx", MakeCallback (&PhyTxTrace));
+  Config::Connect ("/NodeList/*/DeviceList/*/Phy/State/State", MakeCallback (&PhyStateTrace));
+
+  AthstatsHelper athstats;
+  athstats.EnableAthstats ("athstats-sta", stas);
+  athstats.EnableAthstats ("athstats-ap", ap);
+
+  Simulator::Run ();
+
+  Simulator::Destroy ();
+
+	// initialize the output file
 	Vector pos_ap_1 = GetPosition (ap.Get(0));
 	Vector pos_ap_2 = GetPosition (ap.Get(1));
 	Vector pos_ap_3 = GetPosition (ap.Get(2));
@@ -116,7 +244,6 @@ main (int argc, char *argv[])
 	Vector3D sala3 = Vector3D( 11.0,11.0,0.0);	
 	Vector3D sala4 = Vector3D( 1.0,11.0,0.0);	
 
-	// initialize the output file
  	std::ofstream f;
   f.open ("Output.txt", std::ios::out);
   f << "Posicao APs:" <<

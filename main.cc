@@ -1,146 +1,177 @@
 #include "ns3/core-module.h"
-#include "ns3/point-to-point-module.h"
 #include "ns3/network-module.h"
 #include "ns3/applications-module.h"
 #include "ns3/mobility-module.h"
-#include "ns3/csma-module.h"
-#include "ns3/internet-module.h"
-#include "ns3/yans-wifi-helper.h"
-#include "ns3/ssid.h"
-#include "ns3/buildings-module.h"
+#include "ns3/wifi-module.h"
+#include <iostream>
 #include <fstream>
-#include "ns3/uniform-planar-array.h"
-#include "ns3/three-gpp-spectrum-propagation-loss-model.h"
-#include "ns3/three-gpp-v2v-propagation-loss-model.h"
-#include "ns3/three-gpp-channel-model.h"
-
-
+#include <ns3/buildings-module.h>
+#include <ns3/buildings-helper.h>
+#include <ns3/hybrid-buildings-propagation-loss-model.h>
+#include <ns3/constant-position-mobility-model.h>
+#include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/ipv4-list-routing-helper.h"
+#include <../scratch/object-base.h>
+#include "ns3/internet-module.h"
+#include "ns3/packet-socket-helper.h"
+#include "ns3/packet-socket-address.h"
 
 using namespace ns3;
 
+static bool g_verbose_RX = true;
+static bool g_verbose_TX = false;
 
-NS_LOG_COMPONENT_DEFINE ("Main");
+void
+PhyRxOkTrace (std::string context, Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
+{   
+    if (g_verbose_RX)
+        {
+            std::cout << "\n\nRXOK-------------------------------" << context << std::endl;
+            std::cout << "PHYRXOK mode=" << mode << " snr=" << 10*log10(snr) << " " << *packet << std::endl;   
+        }
+}
 
-
-static Vector
-GetPosition (Ptr<Node> node)
- {
-   Ptr<MobilityModel> mobility = node->GetObject<MobilityModel> ();
-   return mobility->GetPosition ();
- }
-
-int
-main (int argc, char *argv[])
+void
+PhyTxTrace (std::string context, Ptr<const Packet> packet, WifiMode mode, WifiPreamble preamble, uint8_t txPower)
 {
-	uint32_t nAp = 4;
-	uint32_t nWifi = 3;
-	double x_min = 0.0;
-	double x_max = 20.0;
-	double y_min = 0.0;
-	double y_max = 20.0;
-	double z_min = 0.0;
-	double z_max = 10.0;
-	double P_X = 1.0;
-	double P_Y = 1.0;
+    if (g_verbose_TX)
+        {
+            std::cout << "\n\nTXTRACE-------------------------------" << context << std::endl;
+            std::cout << "PHYTX mode=" << mode << " " << *packet << std::endl;
+        }
+}
+static void
+SetPosition (Ptr<Node> node, Vector position)
+{
+    Ptr<ConstantPositionMobilityModel> mobility = node->GetObject<ConstantPositionMobilityModel> ();
+    mobility->SetPosition (position);
+}
 
-
-	WifiHelper wifi;
-	MobilityHelper mobility;
-	NodeContainer stas;
-	NodeContainer ap;
-	NetDeviceContainer staDevs;
-	PacketSocketHelper packetSocket;
-	NodeContainer::Iterator i;
-
-	stas.Create (nWifi);
-	ap.Create (nAp);
-
-	// give packet socket powers to nodes.
-	packetSocket.Install (stas);
-	packetSocket.Install (ap);
-
-	WifiMacHelper wifiMac;
-  YansWifiPhyHelper wifiPhy;
-  YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
-  wifiPhy.SetChannel (wifiChannel.Create ());
-  Ssid ssid = Ssid ("wifi-default");
-  wifi.SetRemoteStationManager ("ns3::ArfWifiManager");
-
-  // setup ap.
-  wifiMac.SetType ("ns3::ApWifiMac",
-                   "Ssid", SsidValue (ssid));
-  wifi.Install (wifiPhy, wifiMac, ap);
-
-  // mobility.
-	for (i = ap.Begin (); i != ap.End (); ++i)
-	{
-    mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
-		"MinX", DoubleValue (P_X),
-		"MinY", DoubleValue (P_Y),
-		"DeltaX", DoubleValue (5.0),
-		"DeltaY", DoubleValue (10.0),
-		"GridWidth", UintegerValue (2),
-		"LayoutType", StringValue ("RowFirst"));
-
-    mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-	 	mobility.Install ((*i));
-
-	 	if(P_Y == 1.0 && P_X == 1.0){
-	 		P_X = 11.0;
-	 	}
-	 	else if(P_Y == 1.0 && P_X == 11.0){
-	 		P_Y = 11.0;	
-	 	}
-	 	else if(P_Y == 11.0 && P_X == 11.0){
-	 		P_X = 1.0;	
-	 	}
-	}
-
-
-	Ptr<Building> b = CreateObject <Building> ();
-
-	b->SetBoundaries (Box(x_min, x_max, y_min, y_max, z_min, z_max));
-	b->SetBuildingType (Building::Residential);
-	b->SetExtWallsType (Building:: ConcreteWithWindows);
-	b->SetNFloors (1);
-	b->SetNRoomsX (2);
-	b->SetNRoomsY (2);
-
-	Vector pos_ap_1 = GetPosition (ap.Get(0));
-	Vector pos_ap_2 = GetPosition (ap.Get(1));
-	Vector pos_ap_3 = GetPosition (ap.Get(2));
-	Vector pos_ap_4 = GetPosition (ap.Get(3));
-
-	Vector3D sala1 = Vector3D( 1.0,1.0,0.0);	
-	Vector3D sala2 = Vector3D( 11.0,1.0,0.0);	
-	Vector3D sala3 = Vector3D( 11.0,11.0,0.0);	
-	Vector3D sala4 = Vector3D( 1.0,11.0,0.0);	
-
-	// initialize the output file
- 	std::ofstream f;
-  f.open ("Output.txt", std::ios::out);
-  f << "Posicao APs:" <<
-  		 "\nAP_1 " << pos_ap_1 <<
-       "\nAP_2 " << pos_ap_2 <<
-       "\nAP_3 " << pos_ap_3 <<
-       "\nAP_4 " << pos_ap_4 <<
-       "\n\nSalas:" <<
-       "\nSala 1 " << b->GetRoomX(sala1)<<":" << b->GetRoomY(sala1) <<
-       "\nSala 2 " << b->GetRoomX(sala2)<<":" << b->GetRoomY(sala2) <<
-	     "\nSala 3 " << b->GetRoomX(sala3)<<":" << b->GetRoomY(sala3) <<
-	     "\nSala 4 " << b->GetRoomX(sala4)<<":" << b->GetRoomY(sala4) <<  std::endl;
-  f.close ();
-  
-  return 0;
+void
+CourseChange(std::string context, Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
+{   std::string filename = "out.txt";
+    std::ofstream outFile;
+    outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::app);
+    outFile << Simulator::Now().GetSeconds()
+            << "\n"
+            << context
+            << "\nsnr=" << 10*log10(snr) 
+            << "\n" << *packet
+            << "\n"
+            << std::endl;  
 }
 
 
+int main (int argc, char *argv[])
+{
+    Packet::EnablePrinting ();
+
+    //Building creation
+    double x_min = 0.0;
+    double x_max = 6.0;
+    double y_min = 0.0;
+    double y_max = 6.0;
+    double z_min = 0.0;
+    double z_max = 3.0;
+
+    Ptr<Building> b = CreateObject <Building> ();
+
+    b->SetBoundaries (Box(x_min, x_max, y_min, y_max, z_min, z_max));
+    b->SetBuildingType (Building::Residential);
+    b->SetExtWallsType (Building:: ConcreteWithWindows);
+    b->SetNFloors (1);
+    b->SetNRoomsX (2);
+    b->SetNRoomsY (2);
+
+    Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("2200"));
+    Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("2200"));
+
+    NodeContainer stas;
+
+    uint32_t nStas = 13;
+    stas.Create (nStas);
+    
+    MobilityHelper mobility;
+    mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+
+    mobility.Install (stas);
+
+    //Room1
+    SetPosition(stas.Get(0), Vector(0.5, 0.5, 1.0));
+    SetPosition(stas.Get(1), Vector(2.0, 2.0, 1.0));
+
+    //Room 2
+    SetPosition(stas.Get(2), Vector(0.5, 5.5, 1.0));
+    SetPosition(stas.Get(3), Vector(0.5, 3.5, 1.0));
+    SetPosition(stas.Get(4), Vector(1.5, 4.5, 1.0));
+    SetPosition(stas.Get(5), Vector(2.5, 4.0, 1.0));
+
+    //Room 3
+    SetPosition(stas.Get(6), Vector(5.5, 5.5, 1.0));
+    SetPosition(stas.Get(7), Vector(2.5, 5.5, 1.0));
+    SetPosition(stas.Get(8), Vector(4.0, 5.0, 1.0));
+    SetPosition(stas.Get(9), Vector(5.0, 3.5, 1.0));
+
+    //Room 4
+    SetPosition(stas.Get(10), Vector(5.5, 0.5, 1.0));
+    SetPosition(stas.Get(11), Vector(3.5, 1.5, 1.0));
+    SetPosition(stas.Get(12), Vector(5.0, 2.5, 1.0));
+    
+    WifiHelper wifi;
+
+    WifiMacHelper wifiMac;
+    YansWifiPhyHelper wifiPhy;
+    YansWifiChannelHelper wifiChannel;
+
+    wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+
+    wifiChannel.AddPropagationLoss ("ns3::HybridBuildingsPropagationLossModel",
+                                    "CitySize", StringValue("Small"),
+                                    "ShadowSigmaOutdoor", DoubleValue (7.0),
+                                    "ShadowSigmaIndoor", DoubleValue (5.0),
+                                    "ShadowSigmaExtWalls", DoubleValue (5.0),
+                                    "InternalWallLoss", DoubleValue (5.0),
+                                    "Environment", StringValue("Urban"));
+
+    wifiPhy.SetChannel (wifiChannel.Create ());
+    wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager");
+
+    Ssid ssid = Ssid ("wifi-default");
+    wifiMac.SetType ("ns3::ApWifiMac",
+                    "Ssid", SsidValue (ssid),
+                    "BeaconInterval", TimeValue (MicroSeconds (25600000.0)));
+
+    NetDeviceContainer staDevs;
+    staDevs = wifi.Install (wifiPhy, wifiMac, stas);
+
+    BuildingsHelper::Install (stas);
+
+
+    //Set g_verbose_RX equals true to show
+    Config::Connect ("/NodeList/0/DeviceList/*/Phy/State/RxOk", MakeCallback (&PhyRxOkTrace));  
+    Config::Connect ("/NodeList/2/DeviceList/*/Phy/State/RxOk", MakeCallback (&PhyRxOkTrace));        
+    Config::Connect ("/NodeList/6/DeviceList/*/Phy/State/RxOk", MakeCallback (&PhyRxOkTrace));        
+    Config::Connect ("/NodeList/10/DeviceList/*/Phy/State/RxOk", MakeCallback (&PhyRxOkTrace));   
+
+    //Set g_verbose_TX equals true to show
+    Config::Connect ("/NodeList/0/DeviceList/*/Phy/State/Tx", MakeCallback (&PhyTxTrace));
+    Config::Connect ("/NodeList/2/DeviceList/*/Phy/State/Tx", MakeCallback (&PhyTxTrace));
+    Config::Connect ("/NodeList/6/DeviceList/*/Phy/State/Tx", MakeCallback (&PhyTxTrace));
+    Config::Connect ("/NodeList/10/DeviceList/*/Phy/State/Tx", MakeCallback (&PhyTxTrace));
 
 
 
+    Config::Connect("/NodeList/0/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
+    Config::Connect("/NodeList/2/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
+    Config::Connect("/NodeList/6/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
+    Config::Connect("/NodeList/10/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
 
+    Simulator::Stop (Seconds (25.0));
 
+    Simulator::Run ();
 
+    Simulator::Destroy ();
 
-
+    return 0;
+}
 

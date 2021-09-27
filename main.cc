@@ -18,8 +18,8 @@
 
 using namespace ns3;
 
-static bool g_verbose_RX = true;
-static bool g_verbose_TX = false;
+static bool g_verbose_RX = false;
+static bool g_verbose_TX = true;
 
 void
 PhyRxOkTrace (std::string context, Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
@@ -36,7 +36,7 @@ PhyTxTrace (std::string context, Ptr<const Packet> packet, WifiMode mode, WifiPr
 {
     if (g_verbose_TX)
         {
-            std::cout << "\n\nTXTRACE-------------------------------" << context << std::endl;
+            std::cout << "\n" <<txPower <<"\nTXTRACE-------------------------------" << context << std::endl;
             std::cout << "PHYTX mode=" << mode << " " << *packet << std::endl;
         }
 }
@@ -48,14 +48,27 @@ SetPosition (Ptr<Node> node, Vector position)
 }
 
 void
-CourseChange(std::string context, Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
-{   std::string filename = "out.txt";
+SavingRXInfo(std::string context, Ptr<const Packet> packet, double snr, WifiMode mode, WifiPreamble preamble)
+{   std::string filename = "RXInfo.txt";
     std::ofstream outFile;
     outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::app);
     outFile << Simulator::Now().GetSeconds()
             << "\n"
             << context
             << "\nsnr=" << 10*log10(snr) 
+            << "\n" << *packet
+            << "\n"
+            << std::endl;  
+}
+
+void
+SavingTXInfo(std::string context, Ptr<const Packet> packet, WifiMode mode, WifiPreamble preamble, uint8_t txPower)
+{   std::string filename = "TXInfo.txt";
+    std::ofstream outFile;
+    outFile.open (filename.c_str (), std::ios_base::out | std::ios_base::app);
+    outFile << Simulator::Now().GetSeconds()
+            << "\n"
+            << context
             << "\n" << *packet
             << "\n"
             << std::endl;  
@@ -159,12 +172,22 @@ int main (int argc, char *argv[])
     Config::Connect ("/NodeList/6/DeviceList/*/Phy/State/Tx", MakeCallback (&PhyTxTrace));
     Config::Connect ("/NodeList/10/DeviceList/*/Phy/State/Tx", MakeCallback (&PhyTxTrace));
 
-
-
-    Config::Connect("/NodeList/0/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
-    Config::Connect("/NodeList/2/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
-    Config::Connect("/NodeList/6/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
-    Config::Connect("/NodeList/10/DeviceList/*/Phy/State/RxOk", MakeCallback (&CourseChange));
+    //Saves RX
+    Config::Connect ("/NodeList/1/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/3/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/4/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/5/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/7/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/8/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/9/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/11/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));        
+    Config::Connect ("/NodeList/12/DeviceList/*/Phy/State/RxOk", MakeCallback (&SavingRXInfo));  
+          
+    //Saves TX
+    Config::Connect("/NodeList/0/DeviceList/*/Phy/State/Tx", MakeCallback (&SavingTXInfo));
+    Config::Connect("/NodeList/2/DeviceList/*/Phy/State/Tx", MakeCallback (&SavingTXInfo));
+    Config::Connect("/NodeList/6/DeviceList/*/Phy/State/Tx", MakeCallback (&SavingTXInfo));
+    Config::Connect("/NodeList/10/DeviceList/*/Phy/State/Tx", MakeCallback (&SavingTXInfo));
 
     Simulator::Stop (Seconds (25.0));
 
